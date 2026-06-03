@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# ChromaDB (vector data — don't commit)
+backend/chroma_db/
+
+# Node
+node_modules/
+.next/
+out/
+frontend/.env.local
+
+# System
+.DS_Store
+*.log
