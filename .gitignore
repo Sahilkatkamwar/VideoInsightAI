@@ -5,7 +5,6 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 venv/
-.venv/
 dist/
 build/
 
@@ -28,6 +27,8 @@ node_modules/
 .next/
 out/
 coverage/
+frontend/AGENTS.md
+frontend/CLAUDE.md
 
 # Package Managers
 .pnp
