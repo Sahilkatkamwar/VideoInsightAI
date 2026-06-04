@@ -1,20 +1,21 @@
-from sentence_transformers import SentenceTransformer
+import os
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
-# Singleton — loaded once when backend starts, reused for every request
-_model: SentenceTransformer | None = None
+_embeddings = None
 
+def get_model():
+    global _embeddings
 
-def get_model() -> SentenceTransformer:
-    global _model
-    if _model is None:
-        print("[Embedder] Loading BAAI/bge-m3 — first run downloads ~2GB, cached after...")
-        _model = SentenceTransformer("BAAI/bge-m3")
-        print("[Embedder] Model loaded.")
-    return _model
+    if _embeddings is None:
+        print("[Embedder] Initializing Gemini embeddings...")
+        _embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/embedding-001",
+            google_api_key=os.getenv("GOOGLE_API_KEY")
+        )
+
+    return _embeddings
 
 
 def embed(texts: list[str]) -> list[list[float]]:
-    """Embed a list of strings. Returns list of float vectors."""
     model = get_model()
-    vectors = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
-    return vectors.tolist()
+    return model.embed_documents(texts)

@@ -40,11 +40,9 @@ app.include_router(metadata.router, tags=["Metadata"])
 
 @app.on_event("startup")
 async def startup_event():
-    """Pre-load the embedding model so the first request isn't slow."""
-    print("[Startup] Pre-loading BGE-M3 embedding model...")
+    print("[Startup] Initializing Gemini embeddings...")
     get_model()
     print("[Startup] Ready.")
-
 
 @app.get("/")
 async def root():

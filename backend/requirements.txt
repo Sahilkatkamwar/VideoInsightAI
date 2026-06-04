@@ -9,8 +9,6 @@ yt-dlp==2024.9.27
 instaloader==4.13.1
 # openai-whisper==20231117
 
-# Embeddings (free, local)
-sentence-transformers==3.1.1
 
 # Vector DB (free, local)
 chromadb==0.5.11
