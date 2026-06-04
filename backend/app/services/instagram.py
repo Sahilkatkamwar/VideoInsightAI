@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 import yt_dlp
-from .instagram_followers import get_instagram_followers
 from faster_whisper import WhisperModel
 
 # Good default for local / CPU-only use
@@ -164,9 +163,7 @@ def fetch_instagram(url: str) -> dict:
     if not followers and creator:
 
         try:
-            followers = get_instagram_followers(
-            creator
-            )
+            followers = 0
 
             print(
                 f"[Instagram] Followers: "
