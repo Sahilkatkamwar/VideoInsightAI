@@ -1,34 +1,45 @@
 import operator
-from typing import TypedDict, Annotated
-from langgraph.graph import StateGraph, END
+from typing import TypedDict, Annotated, List, Dict, Any
+
+from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
+
 from .nodes import retrieve_node, generate_node
 
 
-class AgentState(TypedDict):
+class ChatState(TypedDict, total=False):
     query: str
-    metadata_a: dict
-    metadata_b: dict
-    context_chunks: list[dict]
-    messages: Annotated[list, operator.add]  # accumulates across turns
+
+    metadata_a: Dict[str, Any]
+    metadata_b: Dict[str, Any]
+
+    context_chunks: List[Dict[str, Any]]
+
+    # accumulates automatically across turns
+    messages: Annotated[list, operator.add]
+
     last_response: str
+
+    # optional frontend citations
+    sources: List[Dict[str, Any]]
+
+    # non-streaming compatibility
+    answer: str
 
 
 def build_graph():
-    graph = StateGraph(AgentState)
+    graph = StateGraph(ChatState)
 
     graph.add_node("retrieve", retrieve_node)
-    graph.add_node("generate", generate_node)
 
-    graph.set_entry_point("retrieve")
-    graph.add_edge("retrieve", "generate")
-    graph.add_edge("generate", END)
+    graph.add_edge(START, "retrieve")
 
-    # MemorySaver = in-process memory keyed by thread_id (session_id from frontend)
-    # No Redis, no external DB — free, works for single-server production
     checkpointer = MemorySaver()
-    return graph.compile(checkpointer=checkpointer)
+
+    return graph.compile(
+        checkpointer=checkpointer
+    )
 
 
-# Single compiled graph instance shared across all requests
+# shared singleton instance
 agent_graph = build_graph()

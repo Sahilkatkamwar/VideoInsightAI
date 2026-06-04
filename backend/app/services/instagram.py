@@ -2,6 +2,7 @@ import os
 import re
 import tempfile
 import traceback
+import sys
 
 from pathlib import Path
 
@@ -15,6 +16,11 @@ WHISPER_MODEL = WhisperModel(
     device="cpu",
     compute_type="int8",
 )
+
+
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 
 def get_shortcode(url: str) -> str:

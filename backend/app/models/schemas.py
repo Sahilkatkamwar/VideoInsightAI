@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, Field
+from typing import Optional, List
 
 
 class IngestRequest(BaseModel):
@@ -9,19 +9,19 @@ class IngestRequest(BaseModel):
 
 class VideoMeta(BaseModel):
     video_id: str
-    title: str
-    transcript: str
-    views: int
-    likes: int
-    comments: int
-    creator: str
-    follower_count: int
-    hashtags: list[str]
-    upload_date: str
-    duration: int
-    engagement_rate: float
-    thumbnail: str
-    platform: str  # "youtube" or "instagram"
+    title: str = ""
+    transcript: str = ""
+    views: int = 0
+    likes: int = 0
+    comments: int = 0
+    creator: str = ""
+    follower_count: int = 0
+    hashtags: List[str] = []
+    upload_date: str = ""
+    duration: float = 0.0
+    engagement_rate: float = 0.0
+    thumbnail: str = ""
+    platform: str = ""
 
 
 class IngestResponse(BaseModel):
@@ -31,10 +31,10 @@ class IngestResponse(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    message: str
-    session_id: str
-    metadata_a: dict
-    metadata_b: dict
+    session_id: str = Field(..., description="Stable conversation/thread id")
+    message: str = Field(..., description="User query")
+    metadata_a: Optional[VideoMeta] = None
+    metadata_b: Optional[VideoMeta] = None
 
 
 class MetadataResponse(BaseModel):

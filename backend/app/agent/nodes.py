@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+from typing import TypedDict, List, Dict, Any
 from langchain_google_genai import ChatGoogleGenerativeAI
 from ..services.vectorstore import retrieve
 from ..services.embedder import embed
@@ -7,77 +8,209 @@ from .prompts import SYSTEM_PROMPT
 
 load_dotenv()
 
+class ChatState(TypedDict, total=False):
+    query: str
+    messages: List[Dict[str, Any]]
+
+    metadata_a: Dict[str, Any]
+    metadata_b: Dict[str, Any]
+
+    context_chunks: List[Dict[str, Any]]
+
+    last_response: str
+    sources: List[Dict[str, Any]]
+
 print("GOOGLE_API_KEY FOUND:", bool(os.getenv("GOOGLE_API_KEY")))
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
     google_api_key=os.getenv("GOOGLE_API_KEY"),
-    temperature=0,
+    temperature=0.2,
+    streaming=True,
 )
 
+def format_chunk_sources(chunks: list[dict]) -> list[dict]:
+    sources = []
 
-def retrieve_node(state: dict) -> dict:
+    for c in chunks:
+        meta = c["metadata"]
+
+        sources.append({
+            "video_id": meta.get("video_id", ""),
+            "chunk_index": meta.get("chunk_index", -1),
+            "start_time": meta.get("start_time", -1),
+            "score": c.get("score", 0),
+            "title": meta.get("title", ""),
+            "creator": meta.get("creator", ""),
+        })
+
+    return sources
+
+
+def retrieve_node(state: ChatState) -> ChatState:
     """
-    Fetch top-k relevant chunks from ChromaDB for the current query.
-    Retrieves from both Video A and B simultaneously.
+    Retrieve relevant chunks from both videos.
+    Adds hook boosting and source tracking.
     """
+
+
     query = state["query"]
 
-    # Get chunks from both videos
-    chunks = retrieve(query, ["A", "B"], embed, n_results=8)
+    chunks = retrieve(
+        query=query,
+        video_ids=["A", "B"],
+        embedder=embed,
+        n_results=4
+    )
+    
+    print("\nRETRIEVED CHUNKS:")
+    for c in chunks:
+        print(
+            c["metadata"].get("video_id"),
+            c["metadata"].get("chunk_index"),
+            c.get("score")
+        )
 
-    # Separate first-5-second chunks for hook-related queries
-    hook_keywords = {"hook", "open", "first", "start", "begin", "intro", "seconds"}
-    is_hook_query = any(kw in query.lower() for kw in hook_keywords)
+    hook_keywords = {
+        "hook",
+        "open",
+        "opening",
+        "first",
+        "start",
+        "begin",
+        "intro",
+        "introduction",
+        "seconds"
+    }
+
+    is_hook_query = any(
+        kw in query.lower()
+        for kw in hook_keywords
+    )
 
     if is_hook_query:
-        # Boost early-timestamp chunks
+
         hook_chunks = [
-            c for c in chunks if float(c["metadata"].get("start_time", -1)) < 10.0
+            c
+            for c in chunks
+            if float(
+                c["metadata"].get(
+                    "start_time",
+                    -1
+                )
+            ) < 10.0
         ]
+
         if hook_chunks:
-            # Put hook chunks first, dedup
-            hook_ids = {c["text"] for c in hook_chunks}
-            rest = [c for c in chunks if c["text"] not in hook_ids]
-            chunks = hook_chunks + rest
 
-    return {"context_chunks": chunks}
+            seen = {
+                c["text"]
+                for c in hook_chunks
+            }
+
+            remaining = [
+                c
+                for c in chunks
+                if c["text"] not in seen
+            ]
+
+            chunks = hook_chunks + remaining
+
+    return {
+        **state,
+        "context_chunks": chunks,
+        "sources": format_chunk_sources(chunks)
+    }
 
 
-def generate_node(state: dict) -> dict:
+def generate_node(state: ChatState) -> ChatState:
     """
-    Build the full prompt with metadata + retrieved chunks,
-    call Gemini, return assistant message.
-    This node is used for non-streaming (batch) calls.
-    For streaming, the router calls llm.astream() directly.
+    Non-streaming generation.
     """
+    print("GENERATE NODE CALLED")
+
     meta_a = state.get("metadata_a", {})
     meta_b = state.get("metadata_b", {})
+
     chunks = state.get("context_chunks", [])
 
     context_str = _build_context(chunks)
-    meta_str = _build_meta(meta_a, meta_b)
 
-    messages = _build_messages(state, meta_str, context_str)
+    meta_str = _build_meta(
+        meta_a,
+        meta_b
+    )
+
+    messages = _build_messages(
+        state,
+        meta_str,
+        context_str
+    )
 
     response = llm.invoke(messages)
-    new_msg = {"role": "assistant", "content": response.content}
+
+    answer = (
+        response.content
+        if hasattr(response, "content")
+        else str(response)
+    )
+
+    new_msg = {
+        "role": "assistant",
+        "content": answer
+    }
 
     return {
-        "messages": state.get("messages", []) + [new_msg],
-        "last_response": response.content,
+        **state,
+        "messages": (
+            state.get("messages", [])
+            + [new_msg]
+        ),
+        "last_response": answer,
+        "answer": answer
     }
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def _build_context(chunks: list[dict]) -> str:
+
+    if not chunks:
+        return "No relevant transcript chunks found."
+
     lines = []
+
     for c in chunks:
-        vid = c["metadata"]["video_id"]
-        idx = c["metadata"]["chunk_index"]
-        st = c["metadata"].get("start_time", -1)
-        time_label = f" @{float(st):.1f}s" if float(st) >= 0 else ""
-        lines.append(f"[Video {vid}, chunk {idx}{time_label}]\n{c['text']}")
+
+        meta = c["metadata"]
+
+        vid = meta.get(
+            "video_id",
+            "?"
+        )
+
+        idx = meta.get(
+            "chunk_index",
+            -1
+        )
+
+        start_time = float(
+            meta.get(
+                "start_time",
+                -1
+            )
+        )
+
+        timestamp = (
+            f" @{start_time:.1f}s"
+            if start_time >= 0
+            else ""
+        )
+
+        lines.append(
+            f"[Video {vid} chunk {idx}{timestamp}]\n"
+            f"{c['text']}"
+        )
+
     return "\n\n".join(lines)
 
 
@@ -95,13 +228,38 @@ def _build_meta(meta_a: dict, meta_b: dict) -> str:
     return fmt("A", meta_a) + "\n\n" + fmt("B", meta_b)
 
 
-def _build_messages(state: dict, meta_str: str, context_str: str) -> list[dict]:
+def _build_messages(state: ChatState, meta_str: str, context_str: str) -> list[dict]:
     history = state.get("messages", [])
-    user_content = (
-        f"## Video Metadata\n{meta_str}\n\n"
-        f"## Retrieved Transcript Chunks\n{context_str}\n\n"
-        f"## Question\n{state['query']}"
-    )
+    user_content = f"""
+## Instructions
+
+Use ONLY the supplied metadata and transcript chunks.
+
+When making claims, cite evidence using:
+
+[Video A chunk X]
+[Video B chunk X]
+
+Examples:
+
+- Video A uses a stronger hook [Video A chunk 0]
+- Video B has a clearer CTA [Video B chunk 6]
+
+Never invent citations.
+
+Only cite chunks that appear in the retrieved context.
+
+## Video Metadata
+{meta_str}
+
+## Retrieved Transcript Chunks
+
+{context_str}
+
+## User Question
+
+{state['query']}
+"""
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         *history,

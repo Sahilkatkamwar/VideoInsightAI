@@ -1,8 +1,8 @@
 import chromadb
 from chromadb.config import Settings
 
-CHUNK_SIZE = 400   # characters per chunk
-OVERLAP = 80       # overlap between chunks for context continuity
+CHUNK_SIZE = 600   # characters per chunk
+OVERLAP = 120       # overlap between chunks for context continuity
 
 # Persistent ChromaDB — survives server restarts
 _client = chromadb.PersistentClient(

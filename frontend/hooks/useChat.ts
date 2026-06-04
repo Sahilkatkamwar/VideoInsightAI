@@ -44,6 +44,7 @@ export function useChat(videoA: VideoMeta | null, videoB: VideoMeta | null) {
             message: text,
             session_id: sessionId.current,
             metadata_a: {
+              video_id: videoA.video_id,
               title: videoA.title,
               creator: videoA.creator,
               follower_count: videoA.follower_count,
@@ -56,7 +57,9 @@ export function useChat(videoA: VideoMeta | null, videoB: VideoMeta | null) {
               hashtags: videoA.hashtags,
               platform: videoA.platform,
             },
+
             metadata_b: {
+              video_id: videoB.video_id,
               title: videoB.title,
               creator: videoB.creator,
               follower_count: videoB.follower_count,
