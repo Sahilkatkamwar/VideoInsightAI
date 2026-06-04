@@ -41,9 +41,6 @@ AI-powered platform for comparing and analyzing YouTube and Instagram videos usi
 Frontend:
 https://video-insight-ai-olive.vercel.app
 
-Backend API:
-https://videoinsightai-backend.onrender.com
-
 ## Demo Video
 
 🎥 Project Walkthrough:
