@@ -36,6 +36,19 @@ AI-powered platform for comparing and analyzing YouTube and Instagram videos usi
 5. Query through LangGraph agent
 6. Generate AI-powered comparisons
 
+## Live Demo
+
+Frontend:
+https://video-insight-ai-olive.vercel.app
+
+Backend API:
+https://videoinsightai-backend.onrender.com
+
+## Demo Video
+
+🎥 Project Walkthrough:
+https://drive.google.com/file/d/1AQEkwgy3RxZ-h9M5UHGr7Rzs1ZfjMMzu/view?usp=sharing
+
 ## Local Setup
 
 ### Backend
