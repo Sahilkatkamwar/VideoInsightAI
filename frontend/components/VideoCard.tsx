@@ -39,7 +39,7 @@ export const VideoCard = memo(function VideoCard({ video, label }: Props) {
         <div style={{ aspectRatio: "16/9", background: "#1a1a1a", overflow: "hidden" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={`http://localhost:8000/thumbnail?url=${encodeURIComponent(video.thumbnail)}`}
+            src={`${process.env.NEXT_PUBLIC_API_URL}/thumbnail?url=${encodeURIComponent(video.thumbnail)}`}
             alt={video.title}
             loading="lazy"
             style={{ width: "100%", height: "100%", objectFit: "cover" }}

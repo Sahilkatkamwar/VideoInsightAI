@@ -34,7 +34,7 @@ export function useChat(videoA: VideoMeta | null, videoB: VideoMeta | null) {
       setIsStreaming(true);
 
       try {
-        const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const API_URL = process.env.NEXT_PUBLIC_API_URL ;
 
         const res = await fetch(`${API_URL}/chat`, {
           method: "POST",
