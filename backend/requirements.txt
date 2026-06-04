@@ -11,7 +11,6 @@ instaloader==4.13.1
 
 # Embeddings (free, local)
 sentence-transformers==3.1.1
-torch==2.4.1
 
 # Vector DB (free, local)
 chromadb==0.5.11
