@@ -2,6 +2,10 @@
 
 AI-powered platform for comparing and analyzing YouTube and Instagram videos using RAG, vector search, and engagement analytics.
 
+## Live Demo
+
+🌐**Live Application**[Open VideoInsightAI](https://video-insight-ai-olive.vercel.app)
+
 ## Features
 
 - YouTube video ingestion
@@ -35,11 +39,6 @@ AI-powered platform for comparing and analyzing YouTube and Instagram videos usi
 4. Store vectors in ChromaDB
 5. Query through LangGraph agent
 6. Generate AI-powered comparisons
-
-## Live Demo
-
-Frontend:
-https://video-insight-ai-olive.vercel.app
 
 ## Demo Video
 
