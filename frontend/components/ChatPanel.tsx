@@ -140,6 +140,9 @@ export function ChatPanel({ messages, isStreaming, onSend, onClear, videoA, vide
         padding: 12,
       }}>
         <textarea
+          id="chat-message"
+          name="chat-message"
+          autoComplete="off"
           ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}

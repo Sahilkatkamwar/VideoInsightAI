@@ -18,8 +18,38 @@ export function useIngest() {
       const result = await ingestVideos(urlA, urlB);
       setVideoA(result.A);
       setVideoB(result.B);
+
+      for (const video of [result.A, result.B]) {
+        if (video.platform !== "youtube") continue;
+
+        const diagnostics = video.diagnostics ?? [];
+
+        if (video.views === 0 || video.duration === 0 || diagnostics.length > 0) {
+          console.warn("[VideoInsight] YouTube ingest diagnostics", {
+            video_id: video.video_id,
+            title: video.title,
+            creator: video.creator,
+            views: video.views,
+            duration: video.duration,
+            upload_date: video.upload_date,
+            source_url: video.source_url,
+            resolved_url: video.resolved_url,
+            diagnostics,
+          });
+        } else {
+          console.info("[VideoInsight] YouTube metadata loaded", {
+            video_id: video.video_id,
+            title: video.title,
+            views: video.views,
+            duration: video.duration,
+            resolved_url: video.resolved_url,
+          });
+        }
+      }
+
       setStatus("success");
     } catch (e: unknown) {
+      console.error("[VideoInsight] ingest exception", e);
       setError(e instanceof Error ? e.message : "Unknown error");
       setStatus("error");
     }

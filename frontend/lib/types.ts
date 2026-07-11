@@ -13,6 +13,9 @@ export interface VideoMeta {
   engagement_rate: number;
   thumbnail: string;
   platform: "youtube" | "instagram";
+  source_url?: string;
+  resolved_url?: string;
+  diagnostics?: string[];
 }
 
 export interface Source {

@@ -65,7 +65,13 @@ export default function Home() {
           flexShrink: 0,
           overflowY: "auto",
         }}>
-          <IngestForm onIngest={ingest} status={status} error={error} />
+          <IngestForm
+            onIngest={ingest}
+            status={status}
+            error={error}
+            videoA={videoA}
+            videoB={videoB}
+          />
 
           {hasVideos && (
             <div style={{ display: "flex", gap: 10 }}>
