@@ -30,9 +30,6 @@ export default function Home() {
         <span style={{ color: "#f0f0f0", fontSize: 15, fontWeight: 700 }}>
           ◈ RAG Video Chatbot
         </span>
-        <span style={{ color: "#444", fontSize: 12 }}>
-          LangGraph · ChromaDB · Gemini · BGE-M3
-        </span>
         {hasVideos && (
           <button onClick={() => { reset(); clearChat(); }} style={{
             background: "none",

@@ -95,12 +95,41 @@ def _best_thumbnail(thumbnails: dict) -> str:
     return ""
 
 
-def _fetch_youtube_api(video_id: str) -> dict:
-    api_key = os.getenv("YOUTUBE_API_KEY")
+def _youtube_api_key() -> tuple[str, str]:
+    for env_name in ("YOUTUBE_API_KEY", "YOUTUBE_DATA_API_KEY"):
+        value = os.getenv(env_name)
+        if value:
+            return value, env_name
+
+    return "", ""
+
+
+def _youtube_api_error(payload: dict) -> str:
+    error = payload.get("error") if isinstance(payload, dict) else {}
+
+    if not isinstance(error, dict):
+        return "Unknown API error"
+
+    message = error.get("message") or "Unknown API error"
+    details = error.get("errors") or []
+    reason = ""
+
+    if details and isinstance(details[0], dict):
+        reason = details[0].get("reason") or ""
+
+    return f"{message} ({reason})" if reason else message
+
+
+def _fetch_youtube_api(video_id: str) -> tuple[dict, list[str]]:
+    api_key, key_source = _youtube_api_key()
 
     if not api_key:
-        print("[YouTube Data API] No YOUTUBE_API_KEY set")
-        return {}
+        message = (
+            "YOUTUBE_API_KEY or YOUTUBE_DATA_API_KEY is not set; YouTube "
+            "Data API v3 metadata cannot be loaded."
+        )
+        print(f"[YouTube Data API] {message}")
+        return {}, [message]
 
     try:
         response = requests.get(
@@ -112,16 +141,29 @@ def _fetch_youtube_api(video_id: str) -> dict:
             },
             timeout=15,
         )
-        response.raise_for_status()
         payload = response.json()
+        response.raise_for_status()
     except Exception as e:
-        print(f"[YouTube Data API Error] {type(e).__name__}: {e}")
-        return {}
+        detail = ""
+
+        if "response" in locals():
+            try:
+                detail = _youtube_api_error(payload)
+            except Exception:
+                detail = response.text[:300]
+
+        message = (
+            f"YouTube Data API v3 request failed using {key_source}: "
+            f"{type(e).__name__}: {detail or e}"
+        )
+        print(f"[YouTube Data API Error] {message}")
+        return {}, [message]
 
     items = payload.get("items") or []
     if not items:
-        print(f"[YouTube Data API] No video item found for {video_id}")
-        return {}
+        message = f"YouTube Data API v3 did not find video id {video_id}."
+        print(f"[YouTube Data API] {message}")
+        return {}, [message]
 
     item = items[0]
     snippet = item.get("snippet") or {}
@@ -131,21 +173,30 @@ def _fetch_youtube_api(video_id: str) -> dict:
 
     follower_count = _fetch_channel_subscribers(api_key, channel_id)
     published_at = snippet.get("publishedAt") or ""
+    title = snippet.get("title") or ""
+    description = snippet.get("description") or ""
+    hashtags = re.findall(r"#([\w-]+)", f"{title} {description}")
+
+    print(
+        "[YouTube Data API] Loaded metadata for "
+        f"{video_id} using {key_source}"
+    )
 
     return {
-        "title": snippet.get("title") or "",
-        "description": snippet.get("description") or "",
+        "metadata_source": "youtube_data_api_v3",
+        "title": title,
+        "description": description,
         "creator": snippet.get("channelTitle") or "",
         "channel_id": channel_id,
         "follower_count": follower_count,
-        "hashtags": snippet.get("tags") or [],
+        "hashtags": hashtags or snippet.get("tags") or [],
         "upload_date": published_at[:10].replace("-", "") if published_at else "",
         "duration": _parse_iso8601_duration(content_details.get("duration") or ""),
         "thumbnail": _best_thumbnail(snippet.get("thumbnails") or {}),
         "views": _int_value(statistics.get("viewCount")),
         "likes": _int_value(statistics.get("likeCount")),
         "comments": _int_value(statistics.get("commentCount")),
-    }
+    }, []
 
 
 def _fetch_channel_subscribers(api_key: str, channel_id: str) -> int:
@@ -177,128 +228,6 @@ def _fetch_channel_subscribers(api_key: str, channel_id: str) -> int:
         return 0
 
     return _int_value(stats.get("subscriberCount"))
-
-
-def _fetch_innertube(video_id: str) -> dict:
-    api_key = os.getenv(
-        "YOUTUBE_INNERTUBE_API_KEY",
-        "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
-    )
-
-    clients = (
-        ("WEB", "2.20240726.00.00"),
-        ("TVHTML5", "7.20240724.13.00"),
-    )
-
-    for client_name, client_version in clients:
-        try:
-            response = requests.post(
-                f"https://www.youtube.com/youtubei/v1/player?key={api_key}",
-                json={
-                    "context": {
-                        "client": {
-                            "clientName": client_name,
-                            "clientVersion": client_version,
-                        }
-                    },
-                    "videoId": video_id,
-                    "contentCheckOk": True,
-                    "racyCheckOk": True,
-                },
-                headers={
-                    "Content-Type": "application/json",
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/126.0.0.0 Safari/537.36"
-                    ),
-                },
-                timeout=15,
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except Exception as e:
-            print(f"[YouTube InnerTube Error] {type(e).__name__}: {e}")
-            continue
-
-        video_details = payload.get("videoDetails") or {}
-        if not video_details:
-            status = payload.get("playabilityStatus") or {}
-            reason = status.get("reason") or status.get("status") or "no details"
-            print(f"[YouTube InnerTube] {client_name} returned: {reason}")
-            continue
-
-        microformat = (
-            payload.get("microformat", {})
-            .get("playerMicroformatRenderer", {})
-        )
-        thumbnails = video_details.get("thumbnail", {}).get("thumbnails") or []
-        best_thumb = thumbnails[-1]["url"] if thumbnails else ""
-        upload_date = (
-            microformat.get("publishDate")
-            or microformat.get("uploadDate")
-            or ""
-        )
-        upload_date = upload_date[:10].replace("-", "") if upload_date else ""
-
-        return {
-            "metadata_source": f"innertube:{client_name}",
-            "title": video_details.get("title") or "",
-            "description": video_details.get("shortDescription") or "",
-            "creator": video_details.get("author") or "",
-            "follower_count": 0,
-            "hashtags": video_details.get("keywords") or [],
-            "upload_date": upload_date,
-            "duration": _int_value(video_details.get("lengthSeconds")),
-            "thumbnail": best_thumb,
-            "views": _int_value(video_details.get("viewCount")),
-            "likes": 0,
-            "comments": 0,
-        }
-
-    return {}
-
-
-def _video_id_candidates(video_id: str) -> list[str]:
-    candidates = [video_id]
-
-    if "O" not in video_id:
-        return candidates
-
-    seen = {video_id}
-    queue = [video_id]
-
-    for index, char in enumerate(video_id):
-        if char != "O":
-            continue
-
-        for current in list(queue):
-            candidate = current[:index] + "0" + current[index + 1:]
-            if candidate not in seen:
-                seen.add(candidate)
-                queue.append(candidate)
-                candidates.append(candidate)
-
-        if len(candidates) >= 8:
-            break
-
-    return candidates
-
-
-def _resolve_video_id(video_id: str) -> tuple[str, dict]:
-    for candidate in _video_id_candidates(video_id):
-        info = _fetch_innertube(candidate)
-
-        if info.get("title") or info.get("views") or info.get("duration"):
-            if candidate != video_id:
-                print(
-                    f"[YouTube Resolver] Corrected video id "
-                    f"{video_id} -> {candidate}"
-                )
-
-            return candidate, info
-
-    return video_id, {}
 
 
 def _merge_metadata(*sources: dict) -> dict:
@@ -424,7 +353,7 @@ def _parse_xml_transcript(text: str) -> tuple[str, list[dict]]:
 def fetch_youtube(url: str) -> dict:
     original_vid_id = get_youtube_id(url)
     initial_vid_id, alias_diagnostic = _apply_known_video_id_alias(original_vid_id)
-    vid_id, innertube_info = _resolve_video_id(initial_vid_id)
+    vid_id = initial_vid_id
     lookup_url = f"https://www.youtube.com/watch?v={vid_id}"
     diagnostics = []
 
@@ -488,12 +417,26 @@ def fetch_youtube(url: str) -> dict:
                 f"{len(transcript_text)} characters"
             )
 
-    # --- Metadata via YouTube Data API + oEmbed fallback. No yt-dlp here. ---
-    api_info = _fetch_youtube_api(vid_id)
-    if not innertube_info:
-        innertube_info = _fetch_innertube(vid_id)
-    oembed = _fetch_oembed(lookup_url)
-    info = _merge_metadata(innertube_info, api_info)
+    # --- Metadata via official YouTube Data API v3. No yt-dlp here. ---
+    api_info, api_diagnostics = _fetch_youtube_api(vid_id)
+    diagnostics.extend(api_diagnostics)
+
+    oembed = {}
+    if api_info:
+        info = api_info
+    else:
+        oembed = _fetch_oembed(lookup_url)
+        info = _merge_metadata(
+            {"metadata_source": "youtube_oembed_fallback"},
+            oembed,
+        )
+
+        if oembed:
+            diagnostics.append(
+                "Using YouTube oEmbed only for title/thumbnail; "
+                "views, likes, comments, and duration require "
+                "YouTube Data API v3."
+            )
 
     title = (
         info.get("title")
@@ -536,59 +479,56 @@ def fetch_youtube(url: str) -> dict:
         or oembed.get("thumbnail")
         or f"https://i.ytimg.com/vi/{vid_id}/hqdefault.jpg"
     )
-    metadata_source = info.get("metadata_source") or (
-        "youtube_data_api" if api_info else "minimal"
-    )
+    metadata_source = info.get("metadata_source") or "minimal"
 
-    if not innertube_info and not api_info:
+    if not api_info and not oembed:
         diagnostics.append(
-            "YouTube metadata fallback only returned minimal data."
+            "YouTube metadata could not be loaded; configure "
+            "YOUTUBE_API_KEY for YouTube Data API v3."
         )
 
     if views == 0:
-        diagnostics.append(
-            "YouTube returned 0 views from anonymous metadata endpoints."
-        )
+        if api_info:
+            diagnostics.append("YouTube Data API v3 returned 0 views.")
+        else:
+            diagnostics.append(
+                "Video card will show 0 views until YouTube Data API v3 "
+                "metadata is available."
+            )
 
     if duration == 0:
-        diagnostics.append(
-            "YouTube returned 0 duration from anonymous metadata endpoints."
-        )
+        if api_info:
+            diagnostics.append("YouTube Data API v3 returned no duration.")
+        else:
+            diagnostics.append(
+                "Video card will show 0s until YouTube Data API v3 "
+                "metadata is available."
+            )
 
     if not transcript_text:
         diagnostics.append(
             "No YouTube transcript/captions were available."
         )
-                    
+
     return {
-    "transcript": transcript_text,
-    "content_text": content_text,
-    "timed_chunks": timed_chunks,
-
-    "views": views,
-    "likes": likes,
-    "comments": comments,
-
-    "creator": creator,
-
-    "follower_count": info.get("follower_count") or 0,
-
-    "hashtags": info.get("hashtags") or info.get("tags") or [],
-
-    "upload_date": upload_date,
-
-    "duration": duration,
-
-    "title": title,
-
-    "thumbnail": thumbnail,
-
-    "platform": "youtube",
-    "source_url": url,
-    "resolved_url": lookup_url,
-    "source_video_id": original_vid_id,
-    "resolved_video_id": vid_id,
-    "metadata_source": metadata_source,
-    "diagnostics": diagnostics,
-}
-    
+        "transcript": transcript_text,
+        "content_text": content_text,
+        "timed_chunks": timed_chunks,
+        "views": views,
+        "likes": likes,
+        "comments": comments,
+        "creator": creator,
+        "follower_count": info.get("follower_count") or 0,
+        "hashtags": info.get("hashtags") or info.get("tags") or [],
+        "upload_date": upload_date,
+        "duration": duration,
+        "title": title,
+        "thumbnail": thumbnail,
+        "platform": "youtube",
+        "source_url": url,
+        "resolved_url": lookup_url,
+        "source_video_id": original_vid_id,
+        "resolved_video_id": vid_id,
+        "metadata_source": metadata_source,
+        "diagnostics": diagnostics,
+    }
