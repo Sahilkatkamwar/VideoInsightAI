@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef, useCallback } from "react";
 import { readSSEStream } from "@/lib/sse";
+import { apiUrl } from "@/lib/api";
 import type { Message, VideoMeta, Source } from "@/lib/types";
 
 export function useChat(videoA: VideoMeta | null, videoB: VideoMeta | null) {
@@ -34,9 +35,7 @@ export function useChat(videoA: VideoMeta | null, videoB: VideoMeta | null) {
       setIsStreaming(true);
 
       try {
-        const API_URL = process.env.NEXT_PUBLIC_API_URL ;
-
-        const res = await fetch(`${API_URL}/chat`, {
+        const res = await fetch(apiUrl("/chat"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: abortRef.current.signal,

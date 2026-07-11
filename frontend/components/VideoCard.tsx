@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { apiUrl } from "@/lib/api";
 import type { VideoMeta } from "@/lib/types";
 
 interface Props {
@@ -11,7 +12,7 @@ export const VideoCard = memo(function VideoCard({ video, label }: Props) {
   const uploadFormatted = video.upload_date
     ? `${video.upload_date.slice(0, 4)}-${video.upload_date.slice(4, 6)}-${video.upload_date.slice(6, 8)}`
     : "N/A";
-  console.log("thumbnail:", video.thumbnail);
+
   return (
     <div style={{
       background: "#0f0f0f",
@@ -39,7 +40,7 @@ export const VideoCard = memo(function VideoCard({ video, label }: Props) {
         <div style={{ aspectRatio: "16/9", background: "#1a1a1a", overflow: "hidden" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={`${process.env.NEXT_PUBLIC_API_URL}/thumbnail?url=${encodeURIComponent(video.thumbnail)}`}
+            src={apiUrl(`/thumbnail?url=${encodeURIComponent(video.thumbnail)}`)}
             alt={video.title}
             loading="lazy"
             style={{ width: "100%", height: "100%", objectFit: "cover" }}

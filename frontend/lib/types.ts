@@ -19,8 +19,10 @@ export interface Source {
   video_id: string;
   chunk_index: number;
   start_time: number;
-  text_preview: string;
+  text_preview?: string;
   score: number;
+  title?: string;
+  creator?: string;
 }
 
 export interface Message {
