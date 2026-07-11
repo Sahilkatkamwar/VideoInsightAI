@@ -1,5 +1,7 @@
+import os
 import re
-import yt_dlp
+import xml.etree.ElementTree as ET
+
 import requests
 from youtube_transcript_api import YouTubeTranscriptApi
 
@@ -37,6 +39,222 @@ def _fetch_oembed(url: str) -> dict:
     }
 
 
+def _parse_iso8601_duration(value: str) -> int:
+    if not value:
+        return 0
+
+    match = re.fullmatch(
+        r"P(?:(?P<days>\d+)D)?(?:T(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)S)?)?",
+        value,
+    )
+
+    if not match:
+        return 0
+
+    parts = {
+        key: int(raw or 0)
+        for key, raw in match.groupdict().items()
+    }
+
+    return (
+        parts["days"] * 86400
+        + parts["hours"] * 3600
+        + parts["minutes"] * 60
+        + parts["seconds"]
+    )
+
+
+def _int_value(value) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _best_thumbnail(thumbnails: dict) -> str:
+    for key in ("maxres", "standard", "high", "medium", "default"):
+        item = thumbnails.get(key)
+        if item and item.get("url"):
+            return item["url"]
+
+    return ""
+
+
+def _fetch_youtube_api(video_id: str) -> dict:
+    api_key = os.getenv("YOUTUBE_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+    if not api_key:
+        print("[YouTube Data API] No YOUTUBE_API_KEY or GOOGLE_API_KEY set")
+        return {}
+
+    try:
+        response = requests.get(
+            "https://www.googleapis.com/youtube/v3/videos",
+            params={
+                "part": "snippet,statistics,contentDetails",
+                "id": video_id,
+                "key": api_key,
+            },
+            timeout=15,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as e:
+        print(f"[YouTube Data API Error] {type(e).__name__}: {e}")
+        return {}
+
+    items = payload.get("items") or []
+    if not items:
+        print(f"[YouTube Data API] No video item found for {video_id}")
+        return {}
+
+    item = items[0]
+    snippet = item.get("snippet") or {}
+    statistics = item.get("statistics") or {}
+    content_details = item.get("contentDetails") or {}
+    channel_id = snippet.get("channelId") or ""
+
+    follower_count = _fetch_channel_subscribers(api_key, channel_id)
+    published_at = snippet.get("publishedAt") or ""
+
+    return {
+        "title": snippet.get("title") or "",
+        "description": snippet.get("description") or "",
+        "creator": snippet.get("channelTitle") or "",
+        "channel_id": channel_id,
+        "follower_count": follower_count,
+        "hashtags": snippet.get("tags") or [],
+        "upload_date": published_at[:10].replace("-", "") if published_at else "",
+        "duration": _parse_iso8601_duration(content_details.get("duration") or ""),
+        "thumbnail": _best_thumbnail(snippet.get("thumbnails") or {}),
+        "views": _int_value(statistics.get("viewCount")),
+        "likes": _int_value(statistics.get("likeCount")),
+        "comments": _int_value(statistics.get("commentCount")),
+    }
+
+
+def _fetch_channel_subscribers(api_key: str, channel_id: str) -> int:
+    if not channel_id:
+        return 0
+
+    try:
+        response = requests.get(
+            "https://www.googleapis.com/youtube/v3/channels",
+            params={
+                "part": "statistics",
+                "id": channel_id,
+                "key": api_key,
+            },
+            timeout=15,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as e:
+        print(f"[YouTube Channel API Error] {type(e).__name__}: {e}")
+        return 0
+
+    items = payload.get("items") or []
+    if not items:
+        return 0
+
+    stats = items[0].get("statistics") or {}
+    if stats.get("hiddenSubscriberCount"):
+        return 0
+
+    return _int_value(stats.get("subscriberCount"))
+
+
+def _fetch_innertube(video_id: str) -> dict:
+    api_key = os.getenv(
+        "YOUTUBE_INNERTUBE_API_KEY",
+        "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+    )
+
+    clients = (
+        ("WEB", "2.20240726.00.00"),
+        ("TVHTML5", "7.20240724.13.00"),
+    )
+
+    for client_name, client_version in clients:
+        try:
+            response = requests.post(
+                f"https://www.youtube.com/youtubei/v1/player?key={api_key}",
+                json={
+                    "context": {
+                        "client": {
+                            "clientName": client_name,
+                            "clientVersion": client_version,
+                        }
+                    },
+                    "videoId": video_id,
+                    "contentCheckOk": True,
+                    "racyCheckOk": True,
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/126.0.0.0 Safari/537.36"
+                    ),
+                },
+                timeout=15,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as e:
+            print(f"[YouTube InnerTube Error] {type(e).__name__}: {e}")
+            continue
+
+        video_details = payload.get("videoDetails") or {}
+        if not video_details:
+            status = payload.get("playabilityStatus") or {}
+            reason = status.get("reason") or status.get("status") or "no details"
+            print(f"[YouTube InnerTube] {client_name} returned: {reason}")
+            continue
+
+        microformat = (
+            payload.get("microformat", {})
+            .get("playerMicroformatRenderer", {})
+        )
+        thumbnails = video_details.get("thumbnail", {}).get("thumbnails") or []
+        best_thumb = thumbnails[-1]["url"] if thumbnails else ""
+        upload_date = (
+            microformat.get("publishDate")
+            or microformat.get("uploadDate")
+            or ""
+        )
+
+        return {
+            "title": video_details.get("title") or "",
+            "description": video_details.get("shortDescription") or "",
+            "creator": video_details.get("author") or "",
+            "follower_count": 0,
+            "hashtags": video_details.get("keywords") or [],
+            "upload_date": upload_date.replace("-", "") if upload_date else "",
+            "duration": _int_value(video_details.get("lengthSeconds")),
+            "thumbnail": best_thumb,
+            "views": _int_value(video_details.get("viewCount")),
+            "likes": 0,
+            "comments": 0,
+        }
+
+    return {}
+
+
+def _merge_metadata(*sources: dict) -> dict:
+    merged = {}
+
+    for source in sources:
+        for key, value in source.items():
+            if value not in ("", None, [], 0):
+                merged[key] = value
+            elif key not in merged:
+                merged[key] = value
+
+    return merged
+
+
 def _get_transcript_segments(video_id: str) -> list[dict]:
     languages = ["en", "en-US", "en-GB", "en-orig"]
 
@@ -62,6 +280,86 @@ def _get_transcript_segments(video_id: str) -> list[dict]:
             video_id,
             languages=languages,
         )
+
+
+def _fetch_timedtext_transcript(video_id: str) -> tuple[str, list[dict]]:
+    endpoints = (
+        "https://www.youtube.com/api/timedtext",
+        "https://video.google.com/timedtext",
+    )
+
+    for endpoint in endpoints:
+        for params in (
+            {"v": video_id, "lang": "en", "fmt": "json3"},
+            {"v": video_id, "lang": "en"},
+        ):
+            try:
+                response = requests.get(endpoint, params=params, timeout=15)
+                response.raise_for_status()
+            except Exception as e:
+                print(f"[TimedText Error] {type(e).__name__}: {e}")
+                continue
+
+            text = response.text.strip()
+            if not text:
+                continue
+
+            if params.get("fmt") == "json3":
+                parsed = _parse_json3_transcript(response.json())
+            else:
+                parsed = _parse_xml_transcript(text)
+
+            if parsed[0]:
+                return parsed
+
+    return "", []
+
+
+def _parse_json3_transcript(data: dict) -> tuple[str, list[dict]]:
+    chunks = []
+
+    for event in data.get("events", []):
+        segs = event.get("segs") or []
+        line = "".join(seg.get("utf8", "") for seg in segs).strip()
+
+        if not line:
+            continue
+
+        chunks.append(
+            {
+                "text": line,
+                "start": (event.get("tStartMs") or 0) / 1000,
+                "duration": (event.get("dDurationMs") or 0) / 1000,
+            }
+        )
+
+    return " ".join(chunk["text"] for chunk in chunks), chunks
+
+
+def _parse_xml_transcript(text: str) -> tuple[str, list[dict]]:
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as e:
+        print(f"[TimedText XML Parse Error] {e}")
+        return "", []
+
+    chunks = []
+
+    for item in root.findall("text"):
+        line = "".join(item.itertext()).strip()
+
+        if not line:
+            continue
+
+        chunks.append(
+            {
+                "text": line,
+                "start": float(item.attrib.get("start") or 0),
+                "duration": float(item.attrib.get("dur") or 0),
+            }
+        )
+
+    return " ".join(chunk["text"] for chunk in chunks), chunks
 
 
 def fetch_youtube(url: str) -> dict:
@@ -109,120 +407,20 @@ def fetch_youtube(url: str) -> dict:
         transcript_text = ""
         timed_chunks = []
 
-    # --- Metadata via yt-dlp ---
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "skip_download": True,
-        "extract_flat": False,
-        "noplaylist": True,
-        "socket_timeout": 20,
-        "http_headers": {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/126.0.0.0 Safari/537.36"
-            )
-        },
-    }
+    if not transcript_text:
+        transcript_text, timed_chunks = _fetch_timedtext_transcript(vid_id)
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(
-                url,
-                download=False
-            )
-    except Exception as e:
-        print(
-            f"[YouTube Metadata Error] "
-            f"{type(e).__name__}: {e}"
-        )
-        info = {}
-
-    oembed = _fetch_oembed(url) if not info else {}
-
-    # Fallback if transcript unavailable
-    if not transcript_text and info:
-
-        subtitles = (
-        info.get("automatic_captions", {})
-        or info.get("subtitles", {})
-        )
-
-        if subtitles:
-
-            print("[Fallback] Subtitle tracks found")
-
-            preferred_langs = [
-                "en",
-                "en-US",
-                "en-GB",
-                "en-orig"
-            ]
-
-            selected_track = None
-
-            for lang in preferred_langs:
-                if lang in subtitles:
-                    selected_track = subtitles[lang]
-                    print(f"[Fallback] Using {lang}")
-                    break
-
-            if not selected_track:
-                first_lang = next(iter(subtitles))
-                selected_track = subtitles[first_lang]
-                print(
-                    f"[Fallback] Using first available language: "
-                    f"{first_lang}"
-                )
-
-        # Prefer json3 captions
-            json3_track = next(
-                (
-                    x for x in selected_track
-                    if x.get("ext") == "json3"
-                ),
-                None,
+        if transcript_text:
+            print(
+                f"[TimedText] Extracted "
+                f"{len(transcript_text)} characters"
             )
 
-            if json3_track:
-
-                try:
-                    r = requests.get(
-                        json3_track["url"],
-                        timeout=15
-                    )
-
-                    data = r.json()
-
-                    events = data.get("events", [])
-
-                    texts = []
-
-                    for event in events:
-
-                        if "segs" not in event:
-                            continue
-
-                        line = "".join(
-                            seg.get("utf8", "")
-                            for seg in event["segs"]
-                        ).strip()
-
-                        if line:
-                            texts.append(line)
-
-                    transcript_text = "\n".join(texts)
-
-                    print(
-                        f"[Fallback] Extracted "
-                        f"{len(transcript_text)} characters"
-                    )
-
-                except Exception as e:
-                    print(
-                        f"[Subtitle Parse Error] {e}"
-                    )
+    # --- Metadata via YouTube Data API + oEmbed fallback. No yt-dlp here. ---
+    api_info = _fetch_youtube_api(vid_id)
+    innertube_info = _fetch_innertube(vid_id)
+    oembed = _fetch_oembed(url)
+    info = _merge_metadata(innertube_info, api_info)
 
     title = (
         info.get("title")
@@ -259,13 +457,13 @@ def fetch_youtube(url: str) -> dict:
     "content_text": content_text,
     "timed_chunks": timed_chunks,
 
-    "views": info.get("view_count") or 0,
-    "likes": info.get("like_count") or 0,
-    "comments": info.get("comment_count") or 0,
+    "views": info.get("views") or 0,
+    "likes": info.get("likes") or 0,
+    "comments": info.get("comments") or 0,
 
     "creator": creator,
 
-    "follower_count": info.get("channel_follower_count") or 0,
+    "follower_count": info.get("follower_count") or 0,
 
     "hashtags": info.get("tags") or [],
 
@@ -275,7 +473,11 @@ def fetch_youtube(url: str) -> dict:
 
     "title": title,
 
-    "thumbnail": info.get("thumbnail") or oembed.get("thumbnail") or "",
+    "thumbnail": (
+        info.get("thumbnail")
+        or oembed.get("thumbnail")
+        or f"https://i.ytimg.com/vi/{vid_id}/hqdefault.jpg"
+    ),
 
     "platform": "youtube",
 }
