@@ -17,6 +17,53 @@ def get_youtube_id(url: str) -> str:
     raise ValueError(f"Cannot extract YouTube video ID from: {url}")
 
 
+def _fetch_oembed(url: str) -> dict:
+    try:
+        response = requests.get(
+            "https://www.youtube.com/oembed",
+            params={"url": url, "format": "json"},
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        print(f"[YouTube oEmbed Error] {type(e).__name__}: {e}")
+        return {}
+
+    return {
+        "title": data.get("title") or "",
+        "creator": data.get("author_name") or "",
+        "thumbnail": data.get("thumbnail_url") or "",
+    }
+
+
+def _get_transcript_segments(video_id: str) -> list[dict]:
+    languages = ["en", "en-US", "en-GB", "en-orig"]
+
+    try:
+        fetched = YouTubeTranscriptApi().fetch(
+            video_id,
+            languages=languages,
+        )
+
+        if hasattr(fetched, "to_raw_data"):
+            return fetched.to_raw_data()
+
+        return [
+            {
+                "text": snippet.text,
+                "start": snippet.start,
+                "duration": snippet.duration,
+            }
+            for snippet in fetched
+        ]
+    except AttributeError:
+        return YouTubeTranscriptApi.get_transcript(
+            video_id,
+            languages=languages,
+        )
+
+
 def fetch_youtube(url: str) -> dict:
     vid_id = get_youtube_id(url)
 
@@ -27,14 +74,12 @@ def fetch_youtube(url: str) -> dict:
     # --- Transcript ---
     transcript_text = ""
     timed_chunks = []
+    info = {}
 
     try:
         print(f"[Transcript] Fetching transcript for {vid_id}")
 
-        transcript_list = YouTubeTranscriptApi.get_transcript(
-            vid_id,
-            languages=["en"]
-        )
+        transcript_list = _get_transcript_segments(vid_id)
 
         transcript_text = " ".join(
             t["text"]
@@ -70,16 +115,34 @@ def fetch_youtube(url: str) -> dict:
         "no_warnings": True,
         "skip_download": True,
         "extract_flat": False,
+        "noplaylist": True,
+        "socket_timeout": 20,
+        "http_headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/126.0.0.0 Safari/537.36"
+            )
+        },
     }
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(
-            url,
-            download=False
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(
+                url,
+                download=False
+            )
+    except Exception as e:
+        print(
+            f"[YouTube Metadata Error] "
+            f"{type(e).__name__}: {e}"
         )
+        info = {}
+
+    oembed = _fetch_oembed(url) if not info else {}
 
     # Fallback if transcript unavailable
-    if not transcript_text:
+    if not transcript_text and info:
 
         subtitles = (
         info.get("automatic_captions", {})
@@ -160,11 +223,24 @@ def fetch_youtube(url: str) -> dict:
                     print(
                         f"[Subtitle Parse Error] {e}"
                     )
-                    
+
+    title = (
+        info.get("title")
+        or oembed.get("title")
+        or f"YouTube video {vid_id}"
+    )
+
+    creator = (
+        info.get("uploader")
+        or info.get("channel")
+        or oembed.get("creator")
+        or ""
+    )
+
     description = info.get("description") or ""
 
     content_text_parts = [
-        info.get("title") or "",
+        title,
         description,
         transcript_text,
     ]
@@ -174,6 +250,9 @@ def fetch_youtube(url: str) -> dict:
         for part in content_text_parts
         if part and part.strip()
     )
+
+    if not content_text:
+        content_text = f"YouTube video {vid_id}\n{url}"
                     
     return {
     "transcript": transcript_text,
@@ -184,9 +263,7 @@ def fetch_youtube(url: str) -> dict:
     "likes": info.get("like_count") or 0,
     "comments": info.get("comment_count") or 0,
 
-    "creator": info.get("uploader")
-    or info.get("channel")
-    or "",
+    "creator": creator,
 
     "follower_count": info.get("channel_follower_count") or 0,
 
@@ -196,9 +273,9 @@ def fetch_youtube(url: str) -> dict:
 
     "duration": info.get("duration") or 0,
 
-    "title": info.get("title") or "",
+    "title": title,
 
-    "thumbnail": info.get("thumbnail") or "",
+    "thumbnail": info.get("thumbnail") or oembed.get("thumbnail") or "",
 
     "platform": "youtube",
 }

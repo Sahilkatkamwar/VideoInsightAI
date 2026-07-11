@@ -28,6 +28,95 @@ def get_shortcode(url: str) -> str:
     raise ValueError(f"Cannot extract Instagram shortcode from: {url}")
 
 
+def _minimal_instagram(url: str, error: str = "") -> dict:
+    shortcode = get_shortcode(url)
+    title = f"Instagram Reel {shortcode}"
+    content = title
+
+    if error:
+        content += f"\nMetadata fetch failed: {error}"
+
+    content += f"\n{url}"
+
+    return {
+        "transcript": content,
+        "content_text": content,
+        "timed_chunks": [],
+        "views": 0,
+        "likes": 0,
+        "comments": 0,
+        "follower_count": 0,
+        "creator": "",
+        "hashtags": [],
+        "upload_date": "",
+        "duration": 0,
+        "title": title,
+        "thumbnail": "",
+        "platform": "instagram",
+    }
+
+
+def _fetch_instagram_with_instaloader(url: str) -> dict:
+    from instaloader import Instaloader, Post
+
+    shortcode = get_shortcode(url)
+    loader = Instaloader(
+        download_pictures=False,
+        download_videos=False,
+        download_video_thumbnails=False,
+        save_metadata=False,
+        compress_json=False,
+        quiet=True,
+    )
+
+    post = Post.from_shortcode(loader.context, shortcode)
+    caption = post.caption or ""
+    hashtags = re.findall(r"#(\w+)", caption)
+    title = caption[:100] if caption else f"Instagram Reel {shortcode}"
+
+    followers = 0
+    try:
+        followers = post.owner_profile.followers or 0
+    except Exception as e:
+        print(f"[Instagram Followers Error] {repr(e)}")
+
+    duration = getattr(post, "video_duration", None) or 0
+    views = (
+        getattr(post, "video_view_count", None)
+        or getattr(post, "video_play_count", None)
+        or 0
+    )
+
+    content_text_parts = [
+        title,
+        caption,
+        " ".join(hashtags),
+    ]
+
+    content_text = "\n\n".join(
+        part.strip()
+        for part in content_text_parts
+        if part and part.strip()
+    ) or f"Instagram Reel {shortcode}\n{url}"
+
+    return {
+        "transcript": caption or content_text,
+        "content_text": content_text,
+        "timed_chunks": [],
+        "views": views,
+        "likes": post.likes or 0,
+        "comments": post.comments or 0,
+        "follower_count": followers,
+        "creator": post.owner_username or "",
+        "hashtags": hashtags,
+        "upload_date": post.date_utc.strftime("%Y%m%d") if post.date_utc else "",
+        "duration": int(duration or 0),
+        "title": title,
+        "thumbnail": post.url or "",
+        "platform": "instagram",
+    }
+
+
 def fetch_instagram(url: str) -> dict:
     """
     Fetch Instagram Reel/Post metadata using yt-dlp.
@@ -48,19 +137,31 @@ def fetch_instagram(url: str) -> dict:
 
             import json
 
-            with open("instagram_debug.json", "w", encoding="utf-8") as f:
-                json.dump(
-                    info,
-                    f,
-                    indent=2,
-                    ensure_ascii=False,
-                    default=str,
-                )
+            try:
+                with open("instagram_debug.json", "w", encoding="utf-8") as f:
+                    json.dump(
+                        info,
+                        f,
+                        indent=2,
+                        ensure_ascii=False,
+                        default=str,
+                    )
 
-            print("Instagram debug saved.")
+                print("Instagram debug saved.")
+            except OSError as e:
+                print(f"[Instagram Debug Write Error] {e}")
 
     except Exception as e:
-        raise RuntimeError(f"Failed to fetch Instagram URL: {e}")
+        print(f"[Instagram yt-dlp Error] {type(e).__name__}: {e}")
+
+        try:
+            return _fetch_instagram_with_instaloader(url)
+        except Exception as fallback_error:
+            print(
+                f"[Instagram instaloader Error] "
+                f"{type(fallback_error).__name__}: {fallback_error}"
+            )
+            return _minimal_instagram(url, str(fallback_error))
 
     caption = info.get("description") or ""
     hashtags = re.findall(r"#(\w+)", caption)

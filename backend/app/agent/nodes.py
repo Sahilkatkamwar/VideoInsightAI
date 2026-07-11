@@ -38,6 +38,7 @@ def format_chunk_sources(chunks: list[dict]) -> list[dict]:
             "video_id": meta.get("video_id", ""),
             "chunk_index": meta.get("chunk_index", -1),
             "start_time": meta.get("start_time", -1),
+            "text_preview": c.get("text", "")[:180],
             "score": c.get("score", 0),
             "title": meta.get("title", ""),
             "creator": meta.get("creator", ""),

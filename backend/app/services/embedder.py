@@ -9,7 +9,7 @@ def get_model():
     if _embeddings is None:
         print("[Embedder] Initializing Gemini embeddings...")
         _embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
+            model=os.getenv("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-001"),
             google_api_key=os.getenv("GOOGLE_API_KEY")
         )
 
