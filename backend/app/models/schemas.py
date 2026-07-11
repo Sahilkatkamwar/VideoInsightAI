@@ -22,6 +22,9 @@ class VideoMeta(BaseModel):
     engagement_rate: float = 0.0
     thumbnail: str = ""
     platform: str = ""
+    source_url: str = ""
+    resolved_url: str = ""
+    diagnostics: List[str] = Field(default_factory=list)
 
 
 class IngestResponse(BaseModel):

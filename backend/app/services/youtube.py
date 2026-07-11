@@ -409,6 +409,12 @@ def fetch_youtube(url: str) -> dict:
     original_vid_id = get_youtube_id(url)
     vid_id, innertube_info = _resolve_video_id(original_vid_id)
     lookup_url = f"https://www.youtube.com/watch?v={vid_id}"
+    diagnostics = []
+
+    if vid_id != original_vid_id:
+        diagnostics.append(
+            f"Corrected YouTube video id {original_vid_id} -> {vid_id}"
+        )
 
     print("=" * 60)
     print("VIDEO ID:", vid_id)
@@ -498,15 +504,46 @@ def fetch_youtube(url: str) -> dict:
 
     if not content_text:
         content_text = f"YouTube video {vid_id}\n{url}"
+
+    views = info.get("views") or 0
+    likes = info.get("likes") or 0
+    comments = info.get("comments") or 0
+    duration = info.get("duration") or 0
+    upload_date = info.get("upload_date") or ""
+    thumbnail = (
+        info.get("thumbnail")
+        or oembed.get("thumbnail")
+        or f"https://i.ytimg.com/vi/{vid_id}/hqdefault.jpg"
+    )
+
+    if not innertube_info and not api_info:
+        diagnostics.append(
+            "YouTube metadata fallback only returned minimal data."
+        )
+
+    if views == 0:
+        diagnostics.append(
+            "YouTube returned 0 views from anonymous metadata endpoints."
+        )
+
+    if duration == 0:
+        diagnostics.append(
+            "YouTube returned 0 duration from anonymous metadata endpoints."
+        )
+
+    if not transcript_text:
+        diagnostics.append(
+            "No YouTube transcript/captions were available."
+        )
                     
     return {
     "transcript": transcript_text,
     "content_text": content_text,
     "timed_chunks": timed_chunks,
 
-    "views": info.get("views") or 0,
-    "likes": info.get("likes") or 0,
-    "comments": info.get("comments") or 0,
+    "views": views,
+    "likes": likes,
+    "comments": comments,
 
     "creator": creator,
 
@@ -514,18 +551,17 @@ def fetch_youtube(url: str) -> dict:
 
     "hashtags": info.get("hashtags") or info.get("tags") or [],
 
-    "upload_date": info.get("upload_date") or "",
+    "upload_date": upload_date,
 
-    "duration": info.get("duration") or 0,
+    "duration": duration,
 
     "title": title,
 
-    "thumbnail": (
-        info.get("thumbnail")
-        or oembed.get("thumbnail")
-        or f"https://i.ytimg.com/vi/{vid_id}/hqdefault.jpg"
-    ),
+    "thumbnail": thumbnail,
 
     "platform": "youtube",
+    "source_url": url,
+    "resolved_url": lookup_url,
+    "diagnostics": diagnostics,
 }
     

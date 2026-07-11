@@ -75,6 +75,26 @@ async def _ingest_one(video_id: str, url: str) -> dict:
         if not transcript:
             print(f"[{video_id}] WARNING: Transcript is empty")
 
+        diagnostics = data.setdefault("diagnostics", [])
+
+        if data.get("platform") == "youtube":
+            if data.get("views", 0) == 0:
+                diagnostics.append(
+                    "Video card will show 0 views because YouTube metadata returned 0 views."
+                )
+
+            if data.get("duration", 0) == 0:
+                diagnostics.append(
+                    "Video card will show 0s because YouTube metadata returned no duration."
+                )
+
+            if data.get("resolved_url") and data.get("source_url"):
+                if data["resolved_url"] not in data["source_url"]:
+                    print(
+                        f"[{video_id}] Resolved URL: "
+                        f"{data['resolved_url']}"
+                    )
+
         data["engagement_rate"] = compute_engagement(
             data.get("views", 0),
             data.get("likes", 0),
@@ -192,6 +212,9 @@ async def ingest(req: IngestRequest):
             engagement_rate=d.get("engagement_rate", 0.0),
             thumbnail=d.get("thumbnail", ""),
             platform=d.get("platform", ""),
+            source_url=d.get("source_url", ""),
+            resolved_url=d.get("resolved_url", ""),
+            diagnostics=d.get("diagnostics", []),
         )
 
     return IngestResponse(
