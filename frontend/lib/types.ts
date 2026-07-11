@@ -15,6 +15,9 @@ export interface VideoMeta {
   platform: "youtube" | "instagram";
   source_url?: string;
   resolved_url?: string;
+  source_video_id?: string;
+  resolved_video_id?: string;
+  metadata_source?: string;
   diagnostics?: string[];
 }
 

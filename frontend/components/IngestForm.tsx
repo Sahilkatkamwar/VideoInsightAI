@@ -124,6 +124,12 @@ function IngestDiagnostics({
                 resolved: {video.resolved_url}
               </p>
             )}
+            {(video.source_video_id || video.resolved_video_id || video.metadata_source) && (
+              <p style={{ color: "#777", fontSize: 11, margin: "3px 0 0", wordBreak: "break-word" }}>
+                id: {video.source_video_id || "n/a"} → {video.resolved_video_id || "n/a"}
+                {video.metadata_source ? ` · source: ${video.metadata_source}` : ""}
+              </p>
+            )}
             {(hasZeroStats || warnings.length > 0) && (
               <div style={{ marginTop: 4 }}>
                 {warnings.length === 0 ? (

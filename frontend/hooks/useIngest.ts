@@ -34,6 +34,9 @@ export function useIngest() {
             upload_date: video.upload_date,
             source_url: video.source_url,
             resolved_url: video.resolved_url,
+            source_video_id: video.source_video_id,
+            resolved_video_id: video.resolved_video_id,
+            metadata_source: video.metadata_source,
             diagnostics,
           });
         } else {
@@ -43,6 +46,8 @@ export function useIngest() {
             views: video.views,
             duration: video.duration,
             resolved_url: video.resolved_url,
+            resolved_video_id: video.resolved_video_id,
+            metadata_source: video.metadata_source,
           });
         }
       }

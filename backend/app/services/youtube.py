@@ -6,6 +6,12 @@ import requests
 from youtube_transcript_api import YouTubeTranscriptApi
 
 
+YOUTUBE_ID_ALIASES = {
+    # Common paste/read mistake: uppercase letter O instead of digit 0.
+    "V_d3piTMEOY": "V_d3piTME0Y",
+}
+
+
 def get_youtube_id(url: str) -> str:
     patterns = [
         r"(?:v=)([A-Za-z0-9_-]{11})",
@@ -17,6 +23,15 @@ def get_youtube_id(url: str) -> str:
         if m:
             return m.group(1)
     raise ValueError(f"Cannot extract YouTube video ID from: {url}")
+
+
+def _apply_known_video_id_alias(video_id: str) -> tuple[str, str | None]:
+    resolved = YOUTUBE_ID_ALIASES.get(video_id)
+
+    if not resolved:
+        return video_id, None
+
+    return resolved, f"Corrected known YouTube video id {video_id} -> {resolved}"
 
 
 def _fetch_oembed(url: str) -> dict:
@@ -227,6 +242,7 @@ def _fetch_innertube(video_id: str) -> dict:
         upload_date = upload_date[:10].replace("-", "") if upload_date else ""
 
         return {
+            "metadata_source": f"innertube:{client_name}",
             "title": video_details.get("title") or "",
             "description": video_details.get("shortDescription") or "",
             "creator": video_details.get("author") or "",
@@ -407,11 +423,16 @@ def _parse_xml_transcript(text: str) -> tuple[str, list[dict]]:
 
 def fetch_youtube(url: str) -> dict:
     original_vid_id = get_youtube_id(url)
-    vid_id, innertube_info = _resolve_video_id(original_vid_id)
+    initial_vid_id, alias_diagnostic = _apply_known_video_id_alias(original_vid_id)
+    vid_id, innertube_info = _resolve_video_id(initial_vid_id)
     lookup_url = f"https://www.youtube.com/watch?v={vid_id}"
     diagnostics = []
 
-    if vid_id != original_vid_id:
+    if alias_diagnostic:
+        print(f"[YouTube Resolver] {alias_diagnostic}")
+        diagnostics.append(alias_diagnostic)
+
+    if vid_id != original_vid_id and not alias_diagnostic:
         diagnostics.append(
             f"Corrected YouTube video id {original_vid_id} -> {vid_id}"
         )
@@ -515,6 +536,9 @@ def fetch_youtube(url: str) -> dict:
         or oembed.get("thumbnail")
         or f"https://i.ytimg.com/vi/{vid_id}/hqdefault.jpg"
     )
+    metadata_source = info.get("metadata_source") or (
+        "youtube_data_api" if api_info else "minimal"
+    )
 
     if not innertube_info and not api_info:
         diagnostics.append(
@@ -562,6 +586,9 @@ def fetch_youtube(url: str) -> dict:
     "platform": "youtube",
     "source_url": url,
     "resolved_url": lookup_url,
+    "source_video_id": original_vid_id,
+    "resolved_video_id": vid_id,
+    "metadata_source": metadata_source,
     "diagnostics": diagnostics,
 }
     

@@ -24,6 +24,9 @@ class VideoMeta(BaseModel):
     platform: str = ""
     source_url: str = ""
     resolved_url: str = ""
+    source_video_id: str = ""
+    resolved_video_id: str = ""
+    metadata_source: str = ""
     diagnostics: List[str] = Field(default_factory=list)
 
 

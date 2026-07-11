@@ -214,6 +214,9 @@ async def ingest(req: IngestRequest):
             platform=d.get("platform", ""),
             source_url=d.get("source_url", ""),
             resolved_url=d.get("resolved_url", ""),
+            source_video_id=d.get("source_video_id", ""),
+            resolved_video_id=d.get("resolved_video_id", ""),
+            metadata_source=d.get("metadata_source", ""),
             diagnostics=d.get("diagnostics", []),
         )
 
