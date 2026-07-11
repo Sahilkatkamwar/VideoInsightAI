@@ -81,10 +81,10 @@ def _best_thumbnail(thumbnails: dict) -> str:
 
 
 def _fetch_youtube_api(video_id: str) -> dict:
-    api_key = os.getenv("YOUTUBE_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    api_key = os.getenv("YOUTUBE_API_KEY")
 
     if not api_key:
-        print("[YouTube Data API] No YOUTUBE_API_KEY or GOOGLE_API_KEY set")
+        print("[YouTube Data API] No YOUTUBE_API_KEY set")
         return {}
 
     try:
@@ -224,6 +224,7 @@ def _fetch_innertube(video_id: str) -> dict:
             or microformat.get("uploadDate")
             or ""
         )
+        upload_date = upload_date[:10].replace("-", "") if upload_date else ""
 
         return {
             "title": video_details.get("title") or "",
@@ -231,7 +232,7 @@ def _fetch_innertube(video_id: str) -> dict:
             "creator": video_details.get("author") or "",
             "follower_count": 0,
             "hashtags": video_details.get("keywords") or [],
-            "upload_date": upload_date.replace("-", "") if upload_date else "",
+            "upload_date": upload_date,
             "duration": _int_value(video_details.get("lengthSeconds")),
             "thumbnail": best_thumb,
             "views": _int_value(video_details.get("viewCount")),
@@ -240,6 +241,48 @@ def _fetch_innertube(video_id: str) -> dict:
         }
 
     return {}
+
+
+def _video_id_candidates(video_id: str) -> list[str]:
+    candidates = [video_id]
+
+    if "O" not in video_id:
+        return candidates
+
+    seen = {video_id}
+    queue = [video_id]
+
+    for index, char in enumerate(video_id):
+        if char != "O":
+            continue
+
+        for current in list(queue):
+            candidate = current[:index] + "0" + current[index + 1:]
+            if candidate not in seen:
+                seen.add(candidate)
+                queue.append(candidate)
+                candidates.append(candidate)
+
+        if len(candidates) >= 8:
+            break
+
+    return candidates
+
+
+def _resolve_video_id(video_id: str) -> tuple[str, dict]:
+    for candidate in _video_id_candidates(video_id):
+        info = _fetch_innertube(candidate)
+
+        if info.get("title") or info.get("views") or info.get("duration"):
+            if candidate != video_id:
+                print(
+                    f"[YouTube Resolver] Corrected video id "
+                    f"{video_id} -> {candidate}"
+                )
+
+            return candidate, info
+
+    return video_id, {}
 
 
 def _merge_metadata(*sources: dict) -> dict:
@@ -363,7 +406,9 @@ def _parse_xml_transcript(text: str) -> tuple[str, list[dict]]:
 
 
 def fetch_youtube(url: str) -> dict:
-    vid_id = get_youtube_id(url)
+    original_vid_id = get_youtube_id(url)
+    vid_id, innertube_info = _resolve_video_id(original_vid_id)
+    lookup_url = f"https://www.youtube.com/watch?v={vid_id}"
 
     print("=" * 60)
     print("VIDEO ID:", vid_id)
@@ -418,8 +463,9 @@ def fetch_youtube(url: str) -> dict:
 
     # --- Metadata via YouTube Data API + oEmbed fallback. No yt-dlp here. ---
     api_info = _fetch_youtube_api(vid_id)
-    innertube_info = _fetch_innertube(vid_id)
-    oembed = _fetch_oembed(url)
+    if not innertube_info:
+        innertube_info = _fetch_innertube(vid_id)
+    oembed = _fetch_oembed(lookup_url)
     info = _merge_metadata(innertube_info, api_info)
 
     title = (
@@ -429,7 +475,8 @@ def fetch_youtube(url: str) -> dict:
     )
 
     creator = (
-        info.get("uploader")
+        info.get("creator")
+        or info.get("uploader")
         or info.get("channel")
         or oembed.get("creator")
         or ""
@@ -465,7 +512,7 @@ def fetch_youtube(url: str) -> dict:
 
     "follower_count": info.get("follower_count") or 0,
 
-    "hashtags": info.get("tags") or [],
+    "hashtags": info.get("hashtags") or info.get("tags") or [],
 
     "upload_date": info.get("upload_date") or "",
 
